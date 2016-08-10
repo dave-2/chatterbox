@@ -10,7 +10,7 @@ import twiml
 
 
 TIME_ZONE = time_zone.PacificTimeZone()
-
+HOST = "http://mytestapp.appspot.com"
 
 class LastUpdatedOrderedDict(collections.OrderedDict):
     'Store items in the order the keys were last added'
@@ -32,7 +32,7 @@ def passcode():
 
 def open_door(response, reason):
     door.on_open()
-    response.play('/assets/9tone.wav')
+    response.play(HOST + '/assets/9tone.wav')
     message = 'Door opened because %s.' % reason
     if door.is_unlocked:
         message += (" It's unlocked for %s more minutes" % door.minutes_left)
@@ -78,7 +78,7 @@ class IntercomHandler(webapp2.RequestHandler):
             with response.gather(numDigits=len(passcode()), action="/entercode",
                                  method="POST", timeout=15) as gather_verb:
                 # "Enter a code if you got one."
-                gather_verb.play('/assets/code01.mp3')
+                gather_verb.play(HOST + '/assets/code01.mp3')
             call_numbers(response, 'Hang on a sec. Calling them.')
 
         self.response.out.write(response)
