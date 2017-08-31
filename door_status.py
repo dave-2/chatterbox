@@ -17,11 +17,11 @@ class DoorStatus(object):
             s = 'The door was unlocked by %s.' % self.unlocker
             if self._allow_multiple_opens:
                 s += (" The door's unlocked %d minutes until %s." %
-                      (self.unlocker, self.minutes_left, self.lock_time_string))
+                      (self.minutes_left, self.lock_time_string))
             else:
                 s += (" The door's unlocked %d minutes until %s or "
                       'until someone opens it.' %
-                      (self.unlocker, self.minutes_left, self.lock_time_string))
+                      (self.minutes_left, self.lock_time_string))
             return s
         else:
             return "The door's locked."
