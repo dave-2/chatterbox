@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 import collections
-import datetime
 import os
 import re
+from typing import OrderedDict, Set
 
 import flask
 from twilio.twiml import messaging_response
@@ -16,16 +16,16 @@ app = flask.Flask(__name__)
 
 TIME_ZONE = time_zone.PacificTimeZone()
 
-owners = collections.OrderedDict({})
-subscribers = set()
-door = door_status.DoorStatus()
+owners: OrderedDict[str, str] = collections.OrderedDict({})
+subscribers: Set[str] = set()
+door: door_status.DoorStatus = door_status.DoorStatus()
 
 
 def passcode() -> str:
     return '123456'
 
 
-def open_door(response: voice_response.VoiceResponse, reason:str) -> None:
+def open_door(response: voice_response.VoiceResponse, reason: str) -> None:
     door.on_open()
     response.play(digits=9)
     message = f'Door opened because {reason}.'
@@ -74,7 +74,7 @@ def intercom() -> str:
     else:
         # http://www.twilio.com/docs/quickstart/python/twiml/connect-call-to-second-person
         with response.gather(numDigits=len(passcode()), action="/entercode",
-                                method="POST", timeout=15) as gather_verb:
+                             method="POST", timeout=15) as gather_verb:
             # "Enter a code if you got one."
             if 'GAE_APPLICATION' in os.environ:
                 application_id = os.environ['GAE_APPLICATION']
@@ -91,7 +91,7 @@ def intercom() -> str:
 def control() -> str:
     """Handler for when someone texts the Twilio number with a command."""
     number = flask.request.args.get('From')
-    message = flask.request.args.get('Body').strip()
+    message = flask.request.args.get('Body', '').strip()
 
     response = messaging_response.MessagingResponse()
 
@@ -121,7 +121,7 @@ def control() -> str:
     elif message.lower() == 'lock' or message.lower() == 'close':
         door.lock()
         response.message("LISTEN UP YO -- The door's locked. "
-                        'Reply back with a number of minutes to re-unlock.')
+                         'Reply back with a number of minutes to re-unlock.')
     else:
         response.message('Could not understand. :( Try giving me an integer.')
 
