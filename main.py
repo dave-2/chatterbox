@@ -1,136 +1,132 @@
 #!/usr/bin/env python
 import collections
 import datetime
+import os
 import re
-import webapp2
 
-from google.appengine.api import app_identity
+import flask
+from twilio.twiml import messaging_response
+from twilio.twiml import voice_response
 
 import door_status
 import time_zone
-import twiml
 
+
+app = flask.Flask(__name__)
 
 TIME_ZONE = time_zone.PacificTimeZone()
 
-class LastUpdatedOrderedDict(collections.OrderedDict):
-    'Store items in the order the keys were last added'
-
-    def __setitem__(self, key, value):
-        if key in self:
-            del self[key]
-        collections.OrderedDict.__setitem__(self, key, value)
-
-
-owners = LastUpdatedOrderedDict({})
+owners = collections.OrderedDict({})
 subscribers = set()
 door = door_status.DoorStatus()
 
 
-def passcode():
+def passcode() -> str:
     return '123456'
 
 
-def open_door(response, reason):
+def open_door(response: voice_response.VoiceResponse, reason:str) -> None:
     door.on_open()
-    response.play(app_identity.get_application_id() + '/assets/9tone.wav')
-    message = 'Door opened because %s.' % reason
+    response.play(digits=9)
+    message = f'Door opened because {reason}.'
     if door.is_unlocked:
-        message += (" It's unlocked for %s more minutes" % door.minutes_left)
+        message += f" It's unlocked for {door.minutes_left} more minutes."
     else:
         message += " It's now locked."
     for number in subscribers:
+        # TODO: <Sms> is deprecated: https://www.twilio.com/docs/voice/twiml/sms
+        # "To send a text message in response to an incoming phone call, use a
+        # webhook to trigger your own application code and use the REST API to
+        # send a text message."
         response.sms(message, to=number)
 
 
-def call_numbers(response, message):
+def call_numbers(response: voice_response.VoiceResponse, message: str) -> None:
     response.say(message)
     for number in reversed(owners):
         response.dial(number, timeout=12)
 
 
-class StatusHandler(webapp2.RequestHandler):
-    """Handler for when someone visits the website. Prints the door status."""
-    def get(self):
-        self.response.out.write(door)
+@app.route('/')
+def status() -> str:
+    return str(door)
 
 
-class EnterCodeHandler(webapp2.RequestHandler):
+@app.route('/entercode')
+def enter_code() -> str:
     """Callback for when someone at the intercom enters a passcode."""
-    def post(self):
-        response = twiml.Response()
-        digits = self.request.get('Digits')
-        if digits == passcode():
-            open_door(response, 'someone entered the correct code')
-        else:
-            call_numbers(response, 'Oops, wrong code.')
-        self.response.out.write(response)
+    response = voice_response.VoiceResponse()
+    digits = flask.request.args.get('Digits')
+    if digits == passcode():
+        open_door(response, 'someone entered the correct code')
+    else:
+        call_numbers(response, 'Oops, wrong code.')
+    return str(response)
 
 
-class IntercomHandler(webapp2.RequestHandler):
+@app.route('/voice')
+def intercom() -> str:
     """Handler for when someone calls the unit at the intercom."""
-    def get(self):
-        response = twiml.Response()
+    response = voice_response.VoiceResponse()
 
-        if door.is_unlocked:
-            open_door(response, '%s unlocked it' % door.unlocker)
-        else:
-            # http://www.twilio.com/docs/quickstart/python/twiml/connect-call-to-second-person
-            with response.gather(numDigits=len(passcode()), action="/entercode",
-                                 method="POST", timeout=15) as gather_verb:
-                # "Enter a code if you got one."
-                gather_verb.play(app_identity.get_application_id() + '/assets/code01.mp3')
-            call_numbers(response, 'Hang on a sec. Calling them.')
-
-        self.response.out.write(response)
-
-
-class ControlHandler(webapp2.RequestHandler):
-    """Handler for when someone texts the Twilio number with a command."""
-    def get(self):
-        number = self.request.get('From')
-        message = self.request.get('Body').strip()
-
-        if number not in owners:
-            response = twiml.Response()
-            response.sms('No permissions to grant access. :(')
-            self.response.out.write(response)
-            return
-
-        # Move number to the front (last item in OrderedDict).
-        owners[number] = owners[number]
-
-        response = twiml.Response()
-
-        match = re.match('([0-9]+)(\+?)', message)
-        if match:
-            minutes, allow_multiple_opens = match.groups()
-            minutes = int(minutes)
-            allow_multiple_opens = bool(allow_multiple_opens)
-            if door.set_minutes(owners[number], minutes, allow_multiple_opens):
-              response.sms('YO BITCHES! You added %d minutes! '
-                           "The door's unlocked %s minutes until %s. "
-                           'Just reply LOCK to lock it.' %
-                           (minutes, door.minutes_left, door.lock_time_string))
+    if door.is_unlocked:
+        open_door(response, f'{door.unlocker} unlocked it')
+    else:
+        # http://www.twilio.com/docs/quickstart/python/twiml/connect-call-to-second-person
+        with response.gather(numDigits=len(passcode()), action="/entercode",
+                                method="POST", timeout=15) as gather_verb:
+            # "Enter a code if you got one."
+            if 'GAE_APPLICATION' in os.environ:
+                application_id = os.environ['GAE_APPLICATION']
+                hostname = f"https://{application_id.split('~')[1]}.appspot.com"
             else:
-              response.sms('YO BITCHES! The door was already unlocked by %s! '
-                           "The door's unlocked %s minutes until %s. "
-                           'Just reply LOCK to lock it.' %
-                           (door.unlocker, door.minutes_left, door.lock_time_string))
-        elif message.lower() == 'lock' or message.lower() == 'close':
-            door.lock()
-            response.sms("LISTEN UP YO -- The door's locked. "
-                         'Reply back with a number of minutes to re-unlock.')
+                hostname = 'https://localhost:5000'
+            gather_verb.play(f'{hostname}/assets/code01.mp3')
+        call_numbers(response, 'Hang on a sec. Calling them.')
+
+    return str(response)
+
+
+@app.route('/sms')
+def control() -> str:
+    """Handler for when someone texts the Twilio number with a command."""
+    number = flask.request.args.get('From')
+    message = flask.request.args.get('Body').strip()
+
+    response = messaging_response.MessagingResponse()
+
+    if number not in owners:
+        response.message('No permissions to grant access. :(')
+        return str(response)
+
+    # Move number to the front (last item in OrderedDict).
+    owners.move_to_end(number)
+
+    match = re.match(r'([0-9]+)(\+?)', message)
+    if match:
+        minutes, allow_multiple_opens = match.groups()
+        minutes = int(minutes)
+        allow_multiple_opens = bool(allow_multiple_opens)
+        if door.set_minutes(owners[number], minutes, allow_multiple_opens):
+            response.message(
+                f'YO BITCHES! You added {minutes} minutes! '
+                f"The door's unlocked {door.minutes_left} minutes until "
+                f'{door.lock_time_string}. Just reply LOCK to lock it.')
         else:
-            response.sms('Could not understand. :( Try giving me an integer.')
+            response.message(
+                'YO BITCHES! '
+                f'The door was already unlocked by {door.unlocker}! '
+                f"The door's unlocked {door.minutes_left} minutes until "
+                f'{door.lock_time_string}. Just reply LOCK to lock it.')
+    elif message.lower() == 'lock' or message.lower() == 'close':
+        door.lock()
+        response.message("LISTEN UP YO -- The door's locked. "
+                        'Reply back with a number of minutes to re-unlock.')
+    else:
+        response.message('Could not understand. :( Try giving me an integer.')
 
-        self.response.out.write(response)
+    return str(response)
 
 
-handlers = [
-    ('/', StatusHandler),
-    ('/entercode', EnterCodeHandler),
-    ('/voice', IntercomHandler),
-    ('/sms', ControlHandler),
-]
-app = webapp2.WSGIApplication(handlers, debug=True)
+if __name__ == '__main__':
+    app.run(debug=True)
