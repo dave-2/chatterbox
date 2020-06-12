@@ -1,4 +1,5 @@
 import datetime
+from typing import Optional
 
 import time_zone
 
@@ -6,50 +7,46 @@ import time_zone
 TIME_ZONE = time_zone.PacificTimeZone()
 
 
-class DoorStatus(object):
-    def __init__(self):
-        self._unlocker = None
-        self._allow_multiple_opens = False
-        self._reset_time()
+class DoorStatus():
 
-    def __str__(self):
-        if self.is_unlocked:
-            s = 'The door was unlocked by %s.' % self.unlocker
-            if self._allow_multiple_opens:
-                s += (" The door's unlocked %d minutes until %s." %
-                      (self.minutes_left, self.lock_time_string))
-            else:
-                s += (" The door's unlocked %d minutes until %s or "
-                      'until someone opens it.' %
-                      (self.minutes_left, self.lock_time_string))
-            return s
-        else:
+    _unlocker: Optional[str] = None
+    _allow_multiple_opens: bool = False
+    _lock_time: datetime.datetime = datetime.datetime.now(TIME_ZONE)
+
+    def __str__(self) -> str:
+        if not self.is_unlocked:
             return "The door's locked."
 
-    def _reset_time(self):
-        self._lock_time = datetime.datetime.now(TIME_ZONE)
+        string = f'The door was unlocked by {self.unlocker}'
+        if self._allow_multiple_opens:
+            string += (f" The door's unlocked {self.minutes_left} minutes "
+                       f'until {self.lock_time_string}.')
+        else:
+            string += (f" The door's unlocked {self.minutes_left} minutes "
+                       f'until {self.lock_time_string} or someone opens it.')
+        return string
 
     @property
-    def is_unlocked(self):
+    def is_unlocked(self) -> bool:
         return datetime.datetime.now(TIME_ZONE) < self._lock_time
 
     @property
-    def minutes_left(self):
+    def minutes_left(self) -> int:
         time_left = self._lock_time - datetime.datetime.now(TIME_ZONE)
         return int(round(time_left.total_seconds() / 60))
 
     @property
-    def lock_time_string(self):
-        if self.is_unlocked:
-            return self._lock_time.strftime('%I:%M %p')
-        else:
+    def lock_time_string(self) -> Optional[str]:
+        if not self.is_unlocked:
             return None
+        return self._lock_time.strftime('%I:%M %p')
 
     @property
-    def unlocker(self):
+    def unlocker(self) -> str:
         return self._unlocker
 
-    def set_minutes(self, unlocker, minutes, allow_multiple_opens):
+    def set_minutes(self, unlocker: str, minutes: int,
+                    allow_multiple_opens: bool) -> bool:
         new_lock_time = (datetime.datetime.now(TIME_ZONE) +
                          datetime.timedelta(minutes=minutes))
         if new_lock_time <= self._lock_time:
@@ -60,9 +57,9 @@ class DoorStatus(object):
         self._allow_multiple_opens = allow_multiple_opens
         return True
 
-    def on_open(self):
+    def on_open(self) -> None:
         if not self._allow_multiple_opens:
             self.lock()
 
-    def lock(self):
-        self._reset_time()
+    def lock(self) -> None:
+        self._lock_time = datetime.datetime.now(TIME_ZONE)
