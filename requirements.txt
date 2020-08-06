@@ -1,2 +1,2 @@
-Flask==1.1.1
-twilio==6.37.0
+Flask==1.1.2
+twilio==6.43.0

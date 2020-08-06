@@ -1,8 +1,8 @@
-runtime: python37
+runtime: python38
 
 handlers:
-- url: /assets
-  static_dir: assets
+- url: /static
+  static_dir: static
   secure: always
 
 - url: /.*

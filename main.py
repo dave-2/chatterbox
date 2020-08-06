@@ -16,8 +16,8 @@ app = flask.Flask(__name__)
 
 TIME_ZONE = time_zone.PacificTimeZone()
 
-owners: OrderedDict[str, str] = collections.OrderedDict({})
-subscribers: Set[str] = set()
+OWNERS: OrderedDict[str, str] = collections.OrderedDict({})
+SUBSCRIBERS: Set[str] = set()
 door: door_status.DoorStatus = door_status.DoorStatus()
 
 
@@ -33,7 +33,7 @@ def open_door(response: voice_response.VoiceResponse, reason: str) -> None:
         message += f" It's unlocked for {door.minutes_left} more minutes."
     else:
         message += " It's now locked."
-    for number in subscribers:
+    for number in SUBSCRIBERS:
         # TODO: <Sms> is deprecated: https://www.twilio.com/docs/voice/twiml/sms
         # "To send a text message in response to an incoming phone call, use a
         # webhook to trigger your own application code and use the REST API to
@@ -43,7 +43,7 @@ def open_door(response: voice_response.VoiceResponse, reason: str) -> None:
 
 def call_numbers(response: voice_response.VoiceResponse, message: str) -> None:
     response.say(message)
-    for number in reversed(owners):
+    for number in reversed(OWNERS):
         response.dial(number, timeout=12)
 
 
@@ -72,7 +72,6 @@ def intercom() -> str:
     if door.is_unlocked:
         open_door(response, f'{door.unlocker} unlocked it')
     else:
-        # http://www.twilio.com/docs/quickstart/python/twiml/connect-call-to-second-person
         with response.gather(numDigits=len(passcode()), action="/entercode",
                              method="POST", timeout=15) as gather_verb:
             # "Enter a code if you got one."
@@ -81,7 +80,7 @@ def intercom() -> str:
                 hostname = f"https://{application_id.split('~')[1]}.appspot.com"
             else:
                 hostname = 'https://localhost:5000'
-            gather_verb.play(f'{hostname}/assets/code01.mp3')
+            gather_verb.play(f'{hostname}/static/code01.mp3')
         call_numbers(response, 'Hang on a sec. Calling them.')
 
     return str(response)
@@ -95,19 +94,19 @@ def control() -> str:
 
     response = messaging_response.MessagingResponse()
 
-    if number not in owners:
+    if number not in OWNERS:
         response.message('No permissions to grant access. :(')
         return str(response)
 
     # Move number to the front (last item in OrderedDict).
-    owners.move_to_end(number)
+    OWNERS.move_to_end(number)
 
     match = re.match(r'([0-9]+)(\+?)', message)
     if match:
         minutes, allow_multiple_opens = match.groups()
         minutes = int(minutes)
         allow_multiple_opens = bool(allow_multiple_opens)
-        if door.set_minutes(owners[number], minutes, allow_multiple_opens):
+        if door.set_minutes(OWNERS[number], minutes, allow_multiple_opens):
             response.message(
                 f'YO BITCHES! You added {minutes} minutes! '
                 f"The door's unlocked {door.minutes_left} minutes until "
@@ -129,4 +128,6 @@ def control() -> str:
 
 
 if __name__ == '__main__':
+    # This is used when running locally only. When deploying to Google App
+    # Engine, a webserver process such as Gunicorn will serve the app.
     app.run(debug=True)
