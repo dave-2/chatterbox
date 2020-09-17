@@ -52,7 +52,7 @@ def status() -> str:
     return str(door)
 
 
-@app.route('/entercode')
+@app.route('/entercode', methods=['POST'])
 def enter_code() -> str:
     """Callback for when someone at the intercom enters a passcode."""
     response = voice_response.VoiceResponse()
